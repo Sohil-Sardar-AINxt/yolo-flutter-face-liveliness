@@ -204,17 +204,18 @@ class YOLOViewController {
 
   /// Sets the maximum number of items to detect per frame.
   ///
-  /// Limits the number of detections returned to improve
-  /// performance. The value is automatically clamped between 1 and 100.
+  /// Limiting the number of detections can improve performance,
+  /// especially on lower-end devices. The value is automatically
+  /// clamped between 1 and 100.
   ///
   /// Example:
   /// ```dart
-  /// // Limit to 10 detections per frame
+  /// // Only detect up to 10 objects per frame
   /// await controller.setNumItemsThreshold(10);
   /// ```
   Future<void> setNumItemsThreshold(int numItems) async {
-    final clampedNumItems = numItems.clamp(1, 100);
-    _numItemsThreshold = clampedNumItems;
+    final clampedValue = numItems.clamp(1, 100);
+    _numItemsThreshold = clampedValue;
     if (_methodChannel == null) {
       logInfo(
         'YOLOViewController: Warning - Cannot apply numItems threshold, view not yet created',
@@ -223,79 +224,28 @@ class YOLOViewController {
     }
     try {
       await _methodChannel!.invokeMethod('setNumItemsThreshold', {
-        'numItems': clampedNumItems,
+        'numItems': clampedValue,
       });
       logInfo(
         'YOLOViewController: Applied numItems threshold: $_numItemsThreshold',
       );
+      return _applyThresholds();
     } catch (e) {
       logInfo('YOLOViewController: Error applying numItems threshold: $e');
-      return _applyThresholds();
     }
   }
 
-  /// Zooms in the camera view.
+  /// Sets multiple thresholds at once.
   ///
-  /// Increases the zoom level by a fixed amount.
-  /// The actual zoom factor depends on the device's camera capabilities.
-  ///
-  /// Example:
-  /// ```dart
-  /// // Zoom in
-  /// await controller.zoomIn();
-  /// ```
-  Future<void> zoomIn() async {
-    if (_methodChannel == null) {
-      logInfo(
-        'YOLOViewController: Warning - Cannot zoom in, view not yet created',
-      );
-      return;
-    }
-    try {
-      await _methodChannel!.invokeMethod('zoomIn');
-      logInfo('YOLOViewController: Zoomed in');
-    } catch (e) {
-      logInfo('YOLOViewController: Error zooming in: $e');
-    }
-  }
-
-  /// Zooms out the camera view.
-  ///
-  /// Decreases the zoom level by a fixed amount.
-  /// The actual zoom factor depends on the device's camera capabilities.
+  /// This method allows updating multiple thresholds in a single call,
+  /// which is more efficient than setting them individually.
   ///
   /// Example:
   /// ```dart
-  /// // Zoom out
-  /// await controller.zoomOut();
-  /// ```
-  Future<void> zoomOut() async {
-    if (_methodChannel == null) {
-      logInfo(
-        'YOLOViewController: Warning - Cannot zoom out, view not yet created',
-      );
-      return;
-    }
-    try {
-      await _methodChannel!.invokeMethod('zoomOut');
-      logInfo('YOLOViewController: Zoomed out');
-    } catch (e) {
-      logInfo('YOLOViewController: Error zooming out: $e');
-    }
-  }
-
-  /// Sets all thresholds at once.
-  ///
-  /// This is more efficient than setting each threshold individually
-  /// as it only makes one platform channel call.
-  ///
-  /// Example:
-  /// ```dart
-  /// // Set all thresholds at once
   /// await controller.setThresholds(
-  ///   confidenceThreshold: 0.7,
-  ///   iouThreshold: 0.3,
-  ///   numItemsThreshold: 10,
+  ///   confidenceThreshold: 0.6,
+  ///   iouThreshold: 0.4,
+  ///   numItemsThreshold: 20,
   /// );
   /// ```
   Future<void> setThresholds({
@@ -315,15 +265,17 @@ class YOLOViewController {
     return _applyThresholds();
   }
 
-  /// Switches between front and back cameras.
+  /// Switches between front and back camera.
   ///
-  /// Toggles the active camera between the front-facing and
-  /// back-facing cameras. The camera state is maintained by
-  /// the platform view.
+  /// This method toggles the camera between front-facing and back-facing modes.
+  /// Returns a [Future] that completes when the camera has been switched.
   ///
   /// Example:
   /// ```dart
-  /// // Switch to the other camera
+  /// // Create a controller
+  /// final controller = YOLOViewController();
+  ///
+  /// // Switch between front and back camera
   /// await controller.switchCamera();
   /// ```
   Future<void> switchCamera() async {
@@ -335,7 +287,7 @@ class YOLOViewController {
     }
     try {
       await _methodChannel!.invokeMethod('switchCamera');
-      logInfo('YOLOViewController: Switched camera');
+      logInfo('YOLOViewController: Camera switched successfully');
     } catch (e) {
       logInfo('YOLOViewController: Error switching camera: $e');
     }
@@ -397,11 +349,11 @@ class YOLOViewController {
     try {
       logInfo('YoloViewController: Switching model with viewId: $_viewId');
 
-      // Call the platform method on the view's specific method channel
-      await _methodChannel!.invokeMethod('setModel', {
-        'modelPath': modelPath,
-        'task': task.name,
-      });
+      // Call the platform method to switch model
+      await const MethodChannel('yolo_single_image_channel').invokeMethod(
+        'setModel',
+        {'viewId': _viewId, 'modelPath': modelPath, 'task': task.name},
+      );
 
       logInfo(
         'YoloViewController: Model switched successfully to $modelPath with task ${task.name}',
@@ -460,32 +412,169 @@ class YOLOViewController {
     }
   }
 
-  /// Stop camera and inference operations.
-  ///
-  /// This method stops the camera preview and inference processing,
-  /// but keeps the view in a state where it could potentially be
-  /// restarted. For complete cleanup, the widget disposal process
-  /// will call this automatically plus additional cleanup.
-  ///
-  /// Example:
-  /// ```dart
-  /// // Stop camera and inference temporarily
-  /// await controller.stop();
-  /// ```
-  Future<void> stop() async {
+// Replace the getCapturedFrame method in your YOLOViewController:
+
+  Future<Map<String, dynamic>> getCapturedFrame({
+    int quality = 90,
+    bool includeMetadata = false,
+  }) async {
     if (_methodChannel == null) {
       logInfo(
-        'YOLOViewController: Warning - Cannot stop, view not yet created',
+        'YOLOViewController: Warning - Cannot capture frame, view not yet created',
       );
-      return;
+      return {
+        'success': false,
+        'error': 'View not initialized',
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
     }
+
     try {
-      await _methodChannel!.invokeMethod('stop');
-      logInfo('YOLOViewController: Camera and inference stopped successfully');
-    } catch (e) {
-      logInfo('YOLOViewController: Error stopping camera and inference: $e');
+      // Clamp quality to valid range
+      final clampedQuality = quality.clamp(1, 100);
+
+      logInfo(
+        'YOLOViewController: Capturing frame with quality $clampedQuality, metadata: $includeMetadata',
+      );
+
+      final result = await _methodChannel!.invokeMethod('getCapturedFrame', {
+        'quality': clampedQuality,
+        'includeMetadata': includeMetadata,
+      });
+
+      logInfo('YOLOViewController: Raw result from platform: $result');
+      logInfo('YOLOViewController: Result type: ${result.runtimeType}');
+
+      // Handle different possible return types
+      if (result == null) {
+        logInfo('YOLOViewController: Received null result from platform');
+        return {
+          'success': false,
+          'error': 'Null result from platform',
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        };
+      }
+
+      // Convert result to Map<String, dynamic>
+      Map<String, dynamic> resultMap;
+
+      if (result is Map<String, dynamic>) {
+        resultMap = result;
+      } else if (result is Map) {
+        // Convert Map<dynamic, dynamic> to Map<String, dynamic>
+        resultMap = Map<String, dynamic>.from(result);
+      } else {
+        logInfo('YOLOViewController: Invalid result type: ${result.runtimeType}');
+        return {
+          'success': false,
+          'error': 'Invalid result type: ${result.runtimeType}',
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        };
+      }
+
+      logInfo('YOLOViewController: Processed result keys: ${resultMap.keys.toList()}');
+
+      // Validate required fields
+      if (!resultMap.containsKey('success')) {
+        logInfo('YOLOViewController: Result missing success field');
+        return {
+          'success': false,
+          'error': 'Result missing success field',
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        };
+      }
+
+      final success = resultMap['success'];
+      logInfo('YOLOViewController: Success value: $success (${success.runtimeType})');
+
+      if (success == true) {
+        final imageData = resultMap['imageData'];
+        final size = resultMap['size'];
+
+        logInfo('YOLOViewController: Frame capture SUCCESS - size: $size bytes, imageData type: ${imageData?.runtimeType}');
+
+        // Validate image data
+        if (imageData == null) {
+          logInfo('YOLOViewController: Image data is null despite success=true');
+          return {
+            'success': false,
+            'error': 'Image data is null',
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+          };
+        }
+
+        return resultMap;
+      } else {
+        final error = resultMap['error'] ?? 'Unknown error';
+        logInfo('YOLOViewController: Frame capture FAILED - error: $error');
+        return resultMap;
+      }
+
+    } catch (e, stackTrace) {
+      logInfo('YOLOViewController: Exception during frame capture: $e');
+      logInfo('YOLOViewController: Stack trace: $stackTrace');
+
+      return {
+        'success': false,
+        'error': 'Exception: $e',
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
     }
   }
+
+// // Also update isFrameCaptureAvailable with better error handling:
+//   Future<Map<String, dynamic>> isFrameCaptureAvailable() async {
+//     if (_methodChannel == null) {
+//       logInfo(
+//         'YOLOViewController: Warning - Cannot check frame capture availability, view not yet created',
+//       );
+//       return {
+//         'available': false,
+//         'error': 'View not initialized',
+//         'timestamp': DateTime.now().millisecondsSinceEpoch,
+//       };
+//     }
+//
+//     try {
+//       final result = await _methodChannel!.invokeMethod('isFrameCaptureAvailable');
+//
+//       logInfo('YOLOViewController: Raw availability result: $result');
+//
+//       if (result == null) {
+//         return {
+//           'available': false,
+//           'error': 'Null result from platform',
+//           'timestamp': DateTime.now().millisecondsSinceEpoch,
+//         };
+//       }
+//
+//       Map<String, dynamic> resultMap;
+//
+//       if (result is Map<String, dynamic>) {
+//         resultMap = result;
+//       } else if (result is Map) {
+//         resultMap = Map<String, dynamic>.from(result);
+//       } else {
+//         return {
+//           'available': false,
+//           'error': 'Invalid result type: ${result.runtimeType}',
+//           'timestamp': DateTime.now().millisecondsSinceEpoch,
+//         };
+//       }
+//
+//       logInfo('YOLOViewController: Frame capture availability: ${resultMap['available']}');
+//       return resultMap;
+//
+//     } catch (e) {
+//       logInfo('YOLOViewController: Error checking frame capture availability: $e');
+//       return {
+//         'available': false,
+//         'error': e.toString(),
+//         'timestamp': DateTime.now().millisecondsSinceEpoch,
+//       };
+//     }
+//   }
+
 }
 
 /// A Flutter widget that displays a real-time camera preview with YOLO object detection.
@@ -723,19 +812,18 @@ class YOLOViewState extends State<YOLOView> {
       _effectiveController
           .switchModel(widget.modelPath, widget.task)
           .catchError((e) {
-            logInfo('YoloView: Error switching model in didUpdateWidget: $e');
-          });
+        logInfo('YoloView: Error switching model in didUpdateWidget: $e');
+      });
     }
   }
 
   @override
   void dispose() {
-    logInfo('YOLOView.dispose() called - starting cleanup');
-
+    // TODO: Uncomment when stop() method is available
     // Stop camera and inference before disposing
-    _effectiveController.stop().catchError((e) {
-      logInfo('YOLOView: Error stopping camera during dispose: $e');
-    });
+    // _effectiveController.stop().catchError((e) {
+    //   logInfo('YOLOView: Error stopping camera during dispose: $e');
+    // });
 
     // Cancel event subscriptions
     _cancelResultSubscription();
@@ -743,25 +831,6 @@ class YOLOViewState extends State<YOLOView> {
     // Clean up method channel handler
     _methodChannel.setMethodCallHandler(null);
 
-    // Dispose YOLO model instance using viewId as instanceId
-    // This prevents memory leaks by ensuring the model is released from YOLOInstanceManager
-    if (_platformViewId != null) {
-      logInfo(
-        'YOLOView.dispose() - disposing model instance with viewId: $_viewId',
-      );
-      const MethodChannel('yolo_single_image_channel')
-          .invokeMethod('disposeInstance', {'instanceId': _viewId})
-          .then((_) {
-            logInfo(
-              'YOLOView.dispose() - model instance disposed successfully',
-            );
-          })
-          .catchError((e) {
-            logInfo('YOLOView: Error disposing model instance: $e');
-          });
-    }
-
-    logInfo('YOLOView.dispose() completed - calling super.dispose()');
     super.dispose();
   }
 
@@ -815,7 +884,7 @@ class YOLOViewState extends State<YOLOView> {
     );
 
     _resultSubscription = _resultEventChannel.receiveBroadcastStream().listen(
-      (dynamic event) {
+          (dynamic event) {
         logInfo('YOLOView: Received event from native platform: $event');
 
         if (event is Map && event.containsKey('test')) {
@@ -1006,9 +1075,9 @@ class YOLOViewState extends State<YOLOView> {
       creationParams['streamingConfig'] = {
         'includeDetections': widget.streamingConfig!.includeDetections,
         'includeClassifications':
-            widget.streamingConfig!.includeClassifications,
+        widget.streamingConfig!.includeClassifications,
         'includeProcessingTimeMs':
-            widget.streamingConfig!.includeProcessingTimeMs,
+        widget.streamingConfig!.includeProcessingTimeMs,
         'includeFps': widget.streamingConfig!.includeFps,
         'includeMasks': widget.streamingConfig!.includeMasks,
         'includePoses': widget.streamingConfig!.includePoses,
@@ -1016,7 +1085,7 @@ class YOLOViewState extends State<YOLOView> {
         'includeOriginalImage': widget.streamingConfig!.includeOriginalImage,
         'maxFPS': widget.streamingConfig!.maxFPS,
         'throttleInterval':
-            widget.streamingConfig!.throttleInterval?.inMilliseconds,
+        widget.streamingConfig!.throttleInterval?.inMilliseconds,
       };
     }
 
@@ -1144,4 +1213,31 @@ class YOLOViewState extends State<YOLOView> {
   Future<void> setZoomLevel(double zoomLevel) {
     return _effectiveController.setZoomLevel(zoomLevel);
   }
+
+  Future<Map<String, dynamic>> getCapturedFrame({
+    int quality = 90,
+    bool includeMetadata = false,
+  }) {
+    return _effectiveController.getCapturedFrame(
+      quality: quality,
+      includeMetadata: includeMetadata,
+    );
+  }
+
+// Future<Map<String, dynamic>> isFrameCaptureAvailable() {
+//   return _effectiveController.isFrameCaptureAvailable();
+// }
+
+// Future<Map<String, dynamic>> captureFrameToFile({
+//   int quality = 90,
+//   String? filename,
+//   String? directory,
+// }) {
+//   return _effectiveController.captureFrameToFile(
+//     quality: quality,
+//     filename: filename,
+//     directory: directory,
+//   );
+// }
+
 }
