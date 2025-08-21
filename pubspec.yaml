@@ -20,7 +20,6 @@ funding:
 
 environment:
   sdk: ^3.7.2
-  flutter: ">=3.32.1"
 
 dependencies:
   flutter:
